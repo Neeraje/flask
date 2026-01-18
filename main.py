@@ -78,8 +78,8 @@ app = Flask(__name__)
 def index():
     return json.dumps(get_elbotola_matches(), ensure_ascii=False, indent=4)
 
-@app.route('/hilal/')
-def index():
+@app.route('/hilal')
+def hilal():
     return "Hello Hilal"
 
 
