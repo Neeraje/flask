@@ -1,64 +1,70 @@
-from flask import Flask, request, Response, stream_with_context
+from flask import Flask, request
 import requests
 import base64
 
 app = Flask(__name__)
 
+# رابط خادم أوبرا ميني الرسمي (كما في الصورة التي أرسلتها)
 OPERA_SERVER_URL = "http://mini5.opera-mini.net/"
 
 @app.route('/', methods=['GET'])
 def opera_tunnel():
+    # 1. استلام البيانات المشفرة من الرابط
+    # مثال: http://your-server.com/?body=SDASDzxc...
     encrypted_body = request.args.get('body')
 
     if not encrypted_body:
         return "Error: No body parameter found", 400
 
-    def generate_stream():
-        try:
-            # 1. تجهيز البيانات
-            body_fixed = encrypted_body.replace(" ", "+")
-            raw_payload = base64.b64decode(body_fixed)
+    try:
+        # تصحيح الرموز التي قد تتغير في الرابط (مثل + يتحول لمسافة)
+        encrypted_body = encrypted_body.replace(" ", "+")
+        
+        # 2. فك التشفير للحصول على بيانات OBML الخام
+        raw_payload = base64.b64decode(encrypted_body)
 
-            headers = {
-                "Content-Type": "application/xml",
-                "User-Agent": request.headers.get('User-Agent', "Dalvik/2.1.0 (Linux; U; Android 10)"),
-                "Host": "mini5.opera-mini.net",
-                "Accept-Encoding": "gzip",
-                "Connection": "Keep-Alive"
-            }
+        # 3. تجهيز الهيدرز لتبدو وكأنها قادمة من تطبيق أوبرا ميني الحقيقي
+        # (بناءً على الصورة التي أرسلتها: Content-Type: application/xml)
+        headers = {
+            "Content-Type": "application/xml",
+            "User-Agent": request.headers.get('User-Agent', "Dalvik/2.1.0 (Linux; U; Android 10)"),
+            "Host": "mini5.opera-mini.net",
+            "Accept-Encoding": "gzip",
+            "Connection": "Keep-Alive"
+        }
 
-            # 2. فتح الاتصال مع أوبرا
-            with requests.post(
-                OPERA_SERVER_URL, 
-                data=raw_payload, 
-                headers=headers, 
-                stream=True,
-                timeout=30
-            ) as req:
+        # 4. إرسال الطلب لسيرفر أوبرا (Forwarding)
+        opera_response = requests.post(
+            OPERA_SERVER_URL, 
+            data=raw_payload, 
+            headers=headers,
+            timeout=30 # مهلة زمنية
+        )
 
-                # إرسال بداية الصفحة HTML
-                # لاحظ: نفتح وسم content=" ونتركه مفتوحاً لنملأه بالبيانات
-                yield """<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <meta property="og:site_name" content=\""""
+        # 5. استلام الرد وتشفيره بـ Base64
+        # نستخدم content للحصول على الرد الخام (Binary)
+        response_b64 = base64.b64encode(opera_response.content).decode('utf-8')
 
-                # 3. ضخ البيانات (Loop)
-                for chunk in req.iter_content(chunk_size=3072):
-                    if chunk:
-                        encoded_chunk = base64.b64encode(chunk).decode('utf-8')
-                        yield encoded_chunk
+        # 6. تغليف الرد داخل HTML ليقرأه فيسبوك
+        html_response = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <meta property="og:site_name" content="{response_b64}" />
+            <title>Tunnel</title>
+        </head>
+        <body>
+            Opera Tunnel Active
+        </body>
+        </html>
+        """
 
-                # 4. إغلاق الوسم والصفحة (هنا كان الخطأ وتم إصلاحه)
-                # نستخدم ' لإحاطة النص الذي يحتوي على "
-                yield '" />\n    <title>Tunnel</title>\n</head>\n<body>Opera Tunnel Stream Active</body>\n</html>'
+        return html_response
 
-        except Exception as e:
-            # في حالة الخطأ نغلق الـ content ونعرض الخطأ
-            yield f'"> Error: {str(e)}'
-
-    return Response(stream_with_context(generate_stream()), mimetype='text/html')
+    except Exception as e:
+        return f"Server Error: {str(e)}", 500
 
 if __name__ == '__main__':
+    # تشغيل السرفر
     app.run(debug=True, port=os.getenv("PORT", default=5000))
