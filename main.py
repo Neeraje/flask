@@ -13,7 +13,6 @@ def opera_tunnel():
     if not encrypted_body:
         return "Error: No body parameter found", 400
 
-    # دالة المولد (Generator) التي ستضخ البيانات
     def generate_stream():
         try:
             # 1. تجهيز البيانات
@@ -28,44 +27,37 @@ def opera_tunnel():
                 "Connection": "Keep-Alive"
             }
 
-            # 2. فتح الاتصال مع أوبرا بوضع stream=True
-            # هذا يمنع بايثون من تحميل الملف كاملاً في الرام
+            # 2. فتح الاتصال مع أوبرا
             with requests.post(
                 OPERA_SERVER_URL, 
                 data=raw_payload, 
                 headers=headers, 
-                stream=True,  # مهم جداً
+                stream=True,
                 timeout=30
             ) as req:
 
-                # إرسال بداية ملف HTML
+                # إرسال بداية الصفحة HTML
+                # لاحظ: نفتح وسم content=" ونتركه مفتوحاً لنملأه بالبيانات
                 yield """<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
     <meta property="og:site_name" content=\""""
 
-                # 3. قراءة البيانات وتشفيرها وإرسالها فوراً
-                # نستخدم 3072 لأنه من مضاعفات 3 (1024 * 3) لتجنب مشاكل Base64 Padding
+                # 3. ضخ البيانات (Loop)
                 for chunk in req.iter_content(chunk_size=3072):
                     if chunk:
-                        # تشفير القطعة وإرسالها كنص
                         encoded_chunk = base64.b64encode(chunk).decode('utf-8')
                         yield encoded_chunk
 
-                # إرسال نهاية ملف HTML
-                yield "\""" />
-    <title>Tunnel</title>
-</head>
-<body>Opera Tunnel Stream Active</body>
-</html>"
+                # 4. إغلاق الوسم والصفحة (هنا كان الخطأ وتم إصلاحه)
+                # نستخدم ' لإحاطة النص الذي يحتوي على "
+                yield '" />\n    <title>Tunnel</title>\n</head>\n<body>Opera Tunnel Stream Active</body>\n</html>'
 
         except Exception as e:
-            # في حالة الخطأ أثناء الضخ، لا يمكننا تغيير الـ Status Code
-            # لأننا بدأنا الإرسال بالفعل، لكن يمكننا طباعة الخطأ في الصفحة
-            yield f"\"> Error: {str(e)}"
+            # في حالة الخطأ نغلق الـ content ونعرض الخطأ
+            yield f'"> Error: {str(e)}'
 
-    # 4. إرجاع استجابة من نوع Stream
     return Response(stream_with_context(generate_stream()), mimetype='text/html')
 
 if __name__ == '__main__':
